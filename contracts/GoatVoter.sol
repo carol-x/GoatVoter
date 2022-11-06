@@ -75,7 +75,7 @@ contract GoatVoter {
     function removeMember(address _member) public onlyOwner {
         members[_member] = false;
     }
-    function checkMember(address _member) public returns (bool){
+    function checkMember(address _member) public view returns (bool){
         // return true if a member is enabled in the voter org 
         return members[_member];
     }

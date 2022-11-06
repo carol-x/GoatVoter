@@ -6,9 +6,10 @@ async function main() {
   const goatVoter = await GoatVoter.deploy();
 
   await goatVoter.deployed();
+  // await goatVoter.deployTransaction.wait();
 
   console.log(
-    `GoatVoter is deployed to ${lock.address}! Go vote! `
+    `GoatVoter is deployed to ${goatVoter.address} on ${hre.network.name} with transaction ${goatVoter.deployTransaction.hash}! Go vote! `
   );
 }
 
