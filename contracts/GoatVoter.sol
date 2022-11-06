@@ -1,6 +1,7 @@
 pragma solidity ^0.8.13;
 
-import { SomeContract } from "@eth-optimism/contracts/SomeContract.sol"; 
+// ============ External Imports ============
+import {Router} from "@hyperlane-xyz/core/contracts/Router.sol";
 
 struct Call {
     address to;

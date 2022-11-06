@@ -1,13 +1,7 @@
-# Sample Hardhat Project
+# GoatVoter
 
-This project demonstrates a basic Hardhat use case. It comes with a sample contract, a test for that contract, and a script that deploys that contract.
+Use GoatVoter and be a good voter! 
 
-Try running some of the following tasks:
+In DAO governance, we find a recurring issue of missing voting periods and high friction in seeking consensus within an organization. GoatVoter lets individual members cast their votes and casts the vote for the organization on the due date. No more high friction to collaborate with team members and no more votes missed when some members are engaged! 
 
-```shell
-npx hardhat help
-npx hardhat test
-REPORT_GAS=true npx hardhat test
-npx hardhat node
-npx hardhat run scripts/deploy.js
-```
+We have the smart contract on Optimism as the backend for GoatVoter. The smart contract collects vote from the team and uses Hyperlane to trigger the vote function on the Ethereum chain. It supports governance voting on Uniswap, Makerdao, and Compound. 
