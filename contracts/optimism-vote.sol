@@ -1,14 +1,31 @@
 pragma solidity ^0.8.13;
 
 import { SomeContract } from "@eth-optimism/contracts/SomeContract.sol";
+
 struct Call {
     address to;
     bytes data;
 }
 
-interface UniswapGovernanceVote {
+interface IGovernanceCastVote {
+    // interface for uniswap and compound 
     function castVote(uint256 proposalId, uint8 support) external;
+
+    // interface for makerdao 
+    function vote(uint256 pollId, uint256 optionId) external; 
 }
+
+uint32 constant ETH_GOERLI = 5; 
+uint32 constant OPT_GOERLI = 420; 
+uint32 constant OPT = 0x6f70; 
+uint32 constant ETH = 0x657468; 
+
+address constant MAKER = 0xdbE5d00b2D8C13a77Fb03Ee50C87317dbC1B15fb; // goerli testnet 
+address constant UNISWAP = 0x408ED6354d4973f66138C91495F2f2FCbd8724C3; // mainnet 
+address constant COMPOUND = 0xc0Da02939E1441F497fd74F78cE7Decb17B66529; // mainnet 
+address constant TESTCONTRACT = 0xBC3cFeca7Df5A45d61BC60E7898E63670e1654aE; // goerli testnet 
+
+address constant ICAROUTER = 0xffD17672d47E7bB6192d5dBc12A096e00D1a206F; // Hyperlane interchain router 
 
 contract GoatVoter { 
     // assume all proposal ID as uint 
@@ -19,7 +36,7 @@ contract GoatVoter {
     struct ProposalDetail {
         // 0 = Uniswap 
         // 1 = Maker poll 
-        // 2 = Aave 
+        // 2 = Compound 
         uint platform; 
         address[] votedMembers; 
         uint yea; 
@@ -60,15 +77,37 @@ contract GoatVoter {
         }
     }
 
+    ///=== functions for interchain communication ===/// 
+
+    // check the interchain address on ethereum 
+    function getInterchainAccount() public view returns (address) {
+        address myInterchainAccount = InterchainAccountRouter(ICAROUTER).getInterchainAccount(
+            OPT_GOERLI,
+            address(this)
+        );
+        return myInterchainAccount; 
+    }
+
     // owner only function for the org 
     // function for owner to withdraw fund on the other chain 
     function executeFunction(bytes _date, uint _chainId) public onlyOwner {
         Call[] memory calls = new Call[];
-        calls[0] = Call({ to: governanceContractOnEth, data: _date});
-        InterchainAccountRouter router = InterchainAccountRouter(routerAddress);
-        router.getInterchainAccount(420, address(this));
+        calls[0] = Call({ to: getInterchainAccount(), data: _date});
+        InterchainAccountRouter router = InterchainAccountRouter(ICAROUTER);
+        router.getInterchainAccount(OPT_GOERLI, address(this));
         router.dispatch(
             _chainId, 
+            calls
+        );
+    }
+
+    function fooTest() public onlyOwner {
+        Call[] memory calls = new Call[];
+        calls[0] = Call({to: TESTCONTRACT, data: _date});
+        InterchainAccountRouter router = InterchainAccountRouter(ICAROUTER);
+        router.getInterchainAccount(OPT_GOERLI, address(this));
+        router.dispatch(
+            ETH_GOERLI, 
             calls
         );
     }
@@ -77,31 +116,71 @@ contract GoatVoter {
     // check all proposals due dates and submit the ones due on the date 
     // remove the proposals that are casted 
     // anyone may call the function; Chainlink automation is used 
-    function castFinalVote() public 
-    { 
+    function castFinalVote() public { 
         uint today = block.timestamp; 
         uint[] memory proposalsToday = proposalDates[today]; 
         Call[] memory calls = new Call[];
-        InterchainAccountRouter router = InterchainAccountRouter(routerAddress);
-        router.getInterchainAccount(420, address(this));
+        InterchainAccountRouter router = InterchainAccountRouter(ICAROUTER);
+        router.getInterchainAccount(OPT_GOERLI, address(this));
         
         for(uint i = 0; i <= proposalsToday.length; i++){
             uint proposalId = proposalsToday[i]; 
             ProposalDetail proposalInfo = proposals[proposalId]; 
+            // decide contract based on protocol 
+
             if (proposal.yea > proposal.nay) {
                 // cast a yes vote 
-                calls[i] = Call({ to: governanceContractOnEth, data: abi.encodeCall(IUniswapGovernance.castVote, proposalId, 1)});
-                InterchainAccountRouter router = InterchainAccountRouter(routerAddress);
+                if (proposal.platform == 0) {
+                    // Uniswap 
+                    calls[i] = Call({
+                        to: UNISWAP, 
+                        data: abi.encodeCall(IGovernanceCastVote.castVote, (proposalId, 1))
+                        });
+                }
+                else if (proposal.platform == 1) {
+                    // MakerDAO 
+                    calls[i] = Call({
+                        to: MAKER, 
+                        data: abi.encodeCall(IGovernanceCastVote.vote, (proposalId, 1))
+                        });
+                }
+                else if (proposal.platform == 2) {
+                    // Compound 
+                    calls[i] = Call({
+                        to: COMPOUND, 
+                        data: abi.encodeCall(IGovernanceCastVote.castVote, (proposalId, 1))
+                        });
+                }
             } 
             else if (proposal.yea <= proposal.nay) {
                 // cast a no vote 
-                calls[i] = Call({ to: governanceContractOnEth, data: abi.encodeCall(IUniswapGovernance.castVote, proposalId, 0)});
-                InterchainAccountRouter router = InterchainAccountRouter(routerAddress);
+                if (proposal.platform == 0) {
+                    // Uniswap 
+                    calls[i] = Call({
+                        to: UNISWAP, 
+                        data: abi.encodeCall(IGovernanceCastVote.castVote, (proposalId, 0))
+                        });
+                }
+                else if (proposal.platform == 1) {
+                    // MakerDAO 
+                    calls[i] = Call({
+                        to: MAKER, 
+                        data: abi.encodeCall(IGovernanceCastVote.vote, (proposalId, 0))
+                        });
+                }
+                else if (proposal.platform == 2) {
+                    // Compound 
+                    calls[i] = Call({
+                        to: COMPOUND, 
+                        data: abi.encodeCall(IGovernanceCastVote.castVote, (proposalId, 0))
+                        });
+                }
             }
             delete proposals[proposalId]; // remove the proposal after it is finalized 
         }
+        // sending all the voting contract calls together 
         router.dispatch(
-            5,
+            ETH_GOERLI,
             calls
         );
     }
