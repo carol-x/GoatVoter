@@ -4,7 +4,7 @@ require("dotenv").config()
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
   solidity: "0.8.17",
-  network: {
+  networks: {
     // for mainnet
     'optimism': {
       url: "https://mainnet.optimism.io",
@@ -13,6 +13,8 @@ module.exports = {
     // for testnet
     'optimism-goerli': {
       url: "https://goerli.optimism.io",
+      chainId: 420,
+      blockConfirmation: 6,
       accounts: [process.env.PRIVKEY]
     },
   }

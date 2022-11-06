@@ -2,11 +2,12 @@ pragma solidity ^0.8.13;
 
 // ============ External Imports ============
 import {Router} from "@hyperlane-xyz/core/contracts/Router.sol";
+import "./IInterchainAccountRouter.sol";
 
-struct Call {
-    address to;
-    bytes data;
-}
+// struct Call {
+//     address to;
+//     bytes data;
+// }
 
 interface IGovernanceCastVote {
     // interface for uniswap and compound 
@@ -17,7 +18,7 @@ interface IGovernanceCastVote {
 }
 
 interface IFooTest {
-    function fooBar(uint256 amount, string message) external; 
+    function fooBar(uint256 amount, string memory message) external; 
 }
 
 // hyperlane channels 
@@ -37,6 +38,8 @@ address constant ICAROUTER = 0xffD17672d47E7bB6192d5dBc12A096e00D1a206F; // Hype
 contract GoatVoter { 
     // assume all proposal ID as uint 
 
+    // establish the owner 
+    address public owner; 
     // verified members of the voting org 
     mapping (address => bool) public members;
     // proposal details 
@@ -45,14 +48,26 @@ contract GoatVoter {
         // 1 = Maker poll 
         // 2 = Compound 
         uint platform; 
-        address[] votedMembers; 
+        mapping (address => bool) votedMembers;
         uint yea; 
         uint nay; 
-        // uint dueDate;
     }
-    // maintain the due dates of the proposals 
-    mapping(uint => uint[]) public proposalDates; 
-    mapping(uint => ProposalDetail) public proposals; 
+
+    // state of the proposal voting 
+    mapping(uint => uint[]) public proposalDates; // date -> proposalId
+    mapping(uint => ProposalDetail) public proposals; // proposalId -> proposalDetail
+
+    constructor() {
+        // Set the transaction sender as the owner of the contract.
+        owner = msg.sender;
+    }
+
+    // Modifier to check that the caller is the owner of
+    // the contract.
+    modifier onlyOwner() {
+        require(msg.sender == owner, "You are not the owner!"); 
+        _;
+    }
 
     function addMember(address _member) public onlyOwner {
         members[_member] = true;
@@ -70,18 +85,13 @@ contract GoatVoter {
         // first check if the member is enabled in the org 
         require(members[_member], "You're not part of the org to cast vote!"); 
         require(_duedate < block.timestamp, "You are submitting a past proposal"); 
-        ProposalDetail storage proposal = votes[proposalId]; 
-        if (proposal.votedMembers.length == 0) {
-            address[] memory votedMembers = new address[](1);
-            votedMembers[0] = _member;
-            proposal = ProposalDetail({platform: _platform, votedMembers: votedMembers, yea: 0, nay: 0});
-            proposalDates[_duedate].add(_proposalId); 
-        }
-        else {
-            require (proposal.votedMembers[_member] == false, "You cannot double vote!"); 
-            proposal.votedMembers[_member] = true; // vote is casted by the member 
-        }
 
+        ProposalDetail storage proposal = proposals[_proposalId]; 
+        require (proposal.votedMembers[_member] == false, "You cannot double vote!"); 
+        if (proposal.yea + proposal.nay == 0) {
+            proposalDates[_duedate].push(_proposalId); // add in a new proposal in the system 
+        }
+        proposal.votedMembers[_member] = true; // vote is casted by the member 
         if (_vote) {
             proposal.yea++; 
         } else {
@@ -92,35 +102,34 @@ contract GoatVoter {
     ///=== functions for interchain communication ===/// 
 
     // check the interchain address (proxy account) on ethereum 
-    function getInterchainAccount() public view returns (address) {
-        address myInterchainAccount = InterchainAccountRouter(ICAROUTER).getInterchainAccount(
+    function getInterchainAccount() public view {
+        IInterchainAccountRouter(ICAROUTER).getInterchainAccount(
             OPT_GOERLI, // TODO: if this should be ETH 
             address(this)
         );
-        return myInterchainAccount; 
     }
 
     // owner only function for the org 
     // function for owner to withdraw fund on the other chain 
-    function executeFunction(bytes _date, uint _chainId) public onlyOwner {
-        Call[] memory calls = new Call[];
-        calls[0] = Call({ to: getInterchainAccount(), data: _date});
-        InterchainAccountRouter router = InterchainAccountRouter(ICAROUTER);
-        router.getInterchainAccount(OPT_GOERLI, address(this));
-        router.dispatch(
-            _chainId, 
-            calls
-        );
-    }
+    // function executeFunction(string memory _date, uint32 _chainId) public onlyOwner {
+    //     Call[] memory calls = new Call[](1);
+    //     calls[0] = Call({to: getInterchainAccount(), data: _date});
+    //     IInterchainAccountRouter router = IInterchainAccountRouter(ICAROUTER);
+    //     router.getInterchainAccount(OPT_GOERLI, address(this));
+    //     router.dispatch(
+    //         _chainId, 
+    //         calls
+    //     );
+    // }
 
     // test only 
     function fooTest() public onlyOwner {
-        Call[] memory calls = new Call[];
+        Call[] memory calls = new Call[](1);
         calls[0] = Call({
                         to: TESTCONTRACT, 
                         data: abi.encodeCall(IFooTest.fooBar, (2333, "Go bab!"))
                         });
-        InterchainAccountRouter router = InterchainAccountRouter(ICAROUTER);
+        IInterchainAccountRouter router = IInterchainAccountRouter(ICAROUTER);
         router.getInterchainAccount(OPT_GOERLI, address(this));
         router.dispatch(
             ETH_GOERLI, 
@@ -130,12 +139,12 @@ contract GoatVoter {
 
     // test only 
     function makerTest() public onlyOwner {
-        Call[] memory calls = new Call[];
+        Call[] memory calls = new Call[](1);
         calls[0] = Call({
                         to: MAKER, 
                         data: abi.encodeCall(IGovernanceCastVote.vote, (30, 1))
                         });
-        InterchainAccountRouter router = InterchainAccountRouter(ICAROUTER);
+        IInterchainAccountRouter router = IInterchainAccountRouter(ICAROUTER);
         router.getInterchainAccount(OPT_GOERLI, address(this));
         router.dispatch(
             ETH_GOERLI, 
@@ -150,16 +159,16 @@ contract GoatVoter {
     function castFinalVote() public { 
         uint today = block.timestamp; 
         uint[] memory proposalsToday = proposalDates[today]; // a list of ID of proposals today 
-        Call[] memory calls = new Call[];
-        InterchainAccountRouter router = InterchainAccountRouter(ICAROUTER);
+        Call[] memory calls = new Call[](proposalsToday.length);
+        IInterchainAccountRouter router = IInterchainAccountRouter(ICAROUTER);
         router.getInterchainAccount(OPT_GOERLI, address(this));
         
         for(uint i = 0; i <= proposalsToday.length; i++){
             uint proposalId = proposalsToday[i]; 
-            ProposalDetail proposalInfo = proposals[proposalId]; 
+            ProposalDetail storage proposalInfo = proposals[proposalId]; 
             // decide contract based on protocol 
 
-            if (proposal.yea > proposal.nay) {
+            if (proposalInfo.yea > proposalInfo.nay) {
                 // cast a yes vote 
                 if (proposalInfo.platform == 0) {
                     // Uniswap 
@@ -183,23 +192,23 @@ contract GoatVoter {
                         });
                 }
             } 
-            else if (proposal.yea <= proposal.nay) {
+            else if (proposalInfo.yea <= proposalInfo.nay) {
                 // cast a no vote 
-                if (proposal.platform == 0) {
+                if (proposalInfo.platform == 0) {
                     // Uniswap 
                     calls[i] = Call({
                         to: UNISWAP, 
                         data: abi.encodeCall(IGovernanceCastVote.castVote, (proposalId, 0))
                         });
                 }
-                else if (proposal.platform == 1) {
+                else if (proposalInfo.platform == 1) {
                     // MakerDAO 
                     calls[i] = Call({
                         to: MAKER, 
                         data: abi.encodeCall(IGovernanceCastVote.vote, (proposalId, 0))
                         });
                 }
-                else if (proposal.platform == 2) {
+                else if (proposalInfo.platform == 2) {
                     // Compound 
                     calls[i] = Call({
                         to: COMPOUND, 
