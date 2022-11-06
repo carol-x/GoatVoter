@@ -1,6 +1,6 @@
 pragma solidity ^0.8.13;
 
-import { SomeContract } from "@eth-optimism/contracts/SomeContract.sol";
+import { SomeContract } from "@eth-optimism/contracts/SomeContract.sol"; 
 
 struct Call {
     address to;
@@ -15,11 +15,17 @@ interface IGovernanceCastVote {
     function vote(uint256 pollId, uint256 optionId) external; 
 }
 
+interface IFooTest {
+    function fooBar(uint256 amount, string message) external; 
+}
+
+// hyperlane channels 
 uint32 constant ETH_GOERLI = 5; 
 uint32 constant OPT_GOERLI = 420; 
 uint32 constant OPT = 0x6f70; 
 uint32 constant ETH = 0x657468; 
 
+// contract addresses 
 address constant MAKER = 0xdbE5d00b2D8C13a77Fb03Ee50C87317dbC1B15fb; // goerli testnet 
 address constant UNISWAP = 0x408ED6354d4973f66138C91495F2f2FCbd8724C3; // mainnet 
 address constant COMPOUND = 0xc0Da02939E1441F497fd74F78cE7Decb17B66529; // mainnet 
@@ -70,6 +76,11 @@ contract GoatVoter {
             proposal = ProposalDetail({platform: _platform, votedMembers: votedMembers, yea: 0, nay: 0});
             proposalDates[_duedate].add(_proposalId); 
         }
+        else {
+            require (proposal.votedMembers[_member] == false, "You cannot double vote!"); 
+            proposal.votedMembers[_member] = true; // vote is casted by the member 
+        }
+
         if (_vote) {
             proposal.yea++; 
         } else {
@@ -79,10 +90,10 @@ contract GoatVoter {
 
     ///=== functions for interchain communication ===/// 
 
-    // check the interchain address on ethereum 
+    // check the interchain address (proxy account) on ethereum 
     function getInterchainAccount() public view returns (address) {
         address myInterchainAccount = InterchainAccountRouter(ICAROUTER).getInterchainAccount(
-            OPT_GOERLI,
+            OPT_GOERLI, // TODO: if this should be ETH 
             address(this)
         );
         return myInterchainAccount; 
@@ -101,9 +112,28 @@ contract GoatVoter {
         );
     }
 
+    // test only 
     function fooTest() public onlyOwner {
         Call[] memory calls = new Call[];
-        calls[0] = Call({to: TESTCONTRACT, data: _date});
+        calls[0] = Call({
+                        to: TESTCONTRACT, 
+                        data: abi.encodeCall(IFooTest.fooBar, (2333, "Go bab!"))
+                        });
+        InterchainAccountRouter router = InterchainAccountRouter(ICAROUTER);
+        router.getInterchainAccount(OPT_GOERLI, address(this));
+        router.dispatch(
+            ETH_GOERLI, 
+            calls
+        );
+    }
+
+    // test only 
+    function makerTest() public onlyOwner {
+        Call[] memory calls = new Call[];
+        calls[0] = Call({
+                        to: MAKER, 
+                        data: abi.encodeCall(IGovernanceCastVote.vote, (30, 1))
+                        });
         InterchainAccountRouter router = InterchainAccountRouter(ICAROUTER);
         router.getInterchainAccount(OPT_GOERLI, address(this));
         router.dispatch(
@@ -118,7 +148,7 @@ contract GoatVoter {
     // anyone may call the function; Chainlink automation is used 
     function castFinalVote() public { 
         uint today = block.timestamp; 
-        uint[] memory proposalsToday = proposalDates[today]; 
+        uint[] memory proposalsToday = proposalDates[today]; // a list of ID of proposals today 
         Call[] memory calls = new Call[];
         InterchainAccountRouter router = InterchainAccountRouter(ICAROUTER);
         router.getInterchainAccount(OPT_GOERLI, address(this));
@@ -130,21 +160,21 @@ contract GoatVoter {
 
             if (proposal.yea > proposal.nay) {
                 // cast a yes vote 
-                if (proposal.platform == 0) {
+                if (proposalInfo.platform == 0) {
                     // Uniswap 
                     calls[i] = Call({
                         to: UNISWAP, 
                         data: abi.encodeCall(IGovernanceCastVote.castVote, (proposalId, 1))
                         });
                 }
-                else if (proposal.platform == 1) {
+                else if (proposalInfo.platform == 1) {
                     // MakerDAO 
                     calls[i] = Call({
                         to: MAKER, 
                         data: abi.encodeCall(IGovernanceCastVote.vote, (proposalId, 1))
                         });
                 }
-                else if (proposal.platform == 2) {
+                else if (proposalInfo.platform == 2) {
                     // Compound 
                     calls[i] = Call({
                         to: COMPOUND, 
